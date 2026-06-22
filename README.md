@@ -47,7 +47,7 @@ Client
 │              ▼                              │
 │         Kafka Producer ──────────────────── ┼──▶ topic: transaction.created
 │                                             │
-│  TransactionEventConsumer ◀─────────────── ┼──  topic: transaction.created
+│  TransactionEventConsumer ◀───────────────  ┼──  topic: transaction.created
 │       │                                     │
 │       ▼                                     │
 │  TransactionProcessingService               │
