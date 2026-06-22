@@ -1,0 +1,42 @@
+spring:
+  # Flyway must be enabled for Testcontainers-backed tests that use the real schema;
+  # @DataJpaTest + AutoConfigureTestDatabase.Replace.NONE leaves Flyway in play.
+  flyway:
+    enabled: true
+  # Suppress Hibernate's schema-validation DDL noise in test output.
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+  # Prevents context startup failures in @WebMvcTest slices where Redis auto-config
+  # would otherwise try to connect to a non-existent Redis server.
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration
+
+app:
+  retry:
+    max-attempts: 3
+    initial-backoff-ms: 100
+    backoff-multiplier: 2.0
+    max-backoff-ms: 1000
+    sweep-interval-ms: 500
+  idempotency:
+    ttl-hours: 1
+    key-prefix: "idempotency:"
+  jwt:
+    secret: test-secret-key-only-for-automated-tests-not-for-real-use-minimum-length-256-bits
+    access-token-expiration-ms: 900000
+    refresh-token-expiration-ms: 604800000
+    issuer: tps-test
+  cors:
+    allowed-origins: http://localhost:3000
+  seed:
+    enabled: false
+
+logging:
+  level:
+    com.example.transactionprocessing: DEBUG
+    org.flywaydb: WARN
+    org.testcontainers: WARN

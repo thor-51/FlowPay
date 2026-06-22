@@ -1,0 +1,29 @@
+HELP.md
+target/
+!.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**/target/
+!**/src/test/**/target/
+
+### IDE ###
+.idea/
+*.iws
+*.iml
+*.ipr
+.vscode/
+.classpath
+.project
+.settings/
+out/
+
+### macOS / OS ###
+.DS_Store
+
+### Logs ###
+logs/
+*.log
+
+### Environment ###
+.env
+
+### Testcontainers ###
+.testcontainers/

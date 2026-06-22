@@ -1,0 +1,40 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/tps_test_db
+    username: tps_user
+    password: tps_password
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+  flyway:
+    enabled: true
+  kafka:
+    bootstrap-servers: localhost:9092
+    consumer:
+      auto-offset-reset: earliest
+
+app:
+  retry:
+    max-attempts: 3
+    initial-backoff-ms: 100
+    backoff-multiplier: 2.0
+    max-backoff-ms: 1000
+    sweep-interval-ms: 500
+  idempotency:
+    ttl-hours: 1
+  jwt:
+    secret: test-secret-key-only-for-automated-tests-not-for-real-use-1234567890
+    access-token-expiration-ms: 900000
+    refresh-token-expiration-ms: 604800000
+  seed:
+    enabled: false
+
+logging:
+  level:
+    com.example.transactionprocessing: DEBUG
+
+# NOTE: Integration tests in this project use Testcontainers' @DynamicPropertySource
+# to override datasource/kafka/redis URLs at runtime with ephemeral container endpoints.
+# The values above are fallbacks for any test that runs without a container (e.g. pure unit tests
+# that load a slice of the context) and are not used by the Testcontainers-backed integration suite.

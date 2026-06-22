@@ -1,0 +1,11 @@
+target/
+.git/
+.idea/
+*.iml
+.vscode/
+logs/
+*.log
+.env
+docker/grafana/provisioning
+docker/prometheus
+README.md

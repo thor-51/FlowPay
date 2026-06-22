@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+
+    <springProperty scope="context" name="appName" source="spring.application.name"
+                     defaultValue="transaction-processing-system"/>
+
+    <!-- Overridable via LOG_PATH env var; docker-compose sets this to /app/logs (see the app
+         service's environment block and the Dockerfile, which creates and chowns that
+         directory). Defaults to a relative ./logs folder so running outside Docker (e.g. `mvn
+         spring-boot:run` on a laptop) doesn't fail trying to write to a root-level /app path. -->
+    <property name="LOG_PATH" value="${LOG_PATH:-logs}"/>
+
+    <!-- Human-readable console output for local development. -->
+    <springProfile name="dev">
+        <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+            <encoder>
+                <pattern>%d{HH:mm:ss.SSS} %highlight(%-5level) [%thread] %cyan(%logger{36}) [%X{correlationId:-NONE}] - %msg%n%throwable</pattern>
+            </encoder>
+        </appender>
+    </springProfile>
+
+    <!-- Structured JSON everywhere else, ready for Filebeat/Logstash ingestion without any
+         further parsing config on their side (see docker/elk/logstash.conf). -->
+    <springProfile name="!dev">
+        <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+            <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+                <customFields>{"application":"${appName}"}</customFields>
+                <includeMdcKeyName>correlationId</includeMdcKeyName>
+            </encoder>
+        </appender>
+    </springProfile>
+
+    <!-- JSON file appender, on in every profile, rotated by size and age. Writing structured
+         JSON to disk even in dev is intentional and low-cost: it means the file-tailing path
+         (Logstash, or just `tail -f | jq`) works identically regardless of which profile
+         produced the logs, with no separate "prod log format" to test. -->
+    <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_PATH}/application.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_PATH}/application-%d{yyyy-MM-dd}.%i.log.gz</fileNamePattern>
+            <maxFileSize>100MB</maxFileSize>
+            <maxHistory>14</maxHistory>
+            <totalSizeCap>2GB</totalSizeCap>
+        </rollingPolicy>
+        <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+            <customFields>{"application":"${appName}"}</customFields>
+            <includeMdcKeyName>correlationId</includeMdcKeyName>
+        </encoder>
+    </appender>
+
+    <!-- Package-level levels (com.example.transactionprocessing, org.hibernate.SQL, etc.) are
+         intentionally NOT hardcoded here — they're set via logging.level.* in application.yml /
+         application-{profile}.yml, which Spring Boot's LoggingSystem applies on top of this
+         file regardless (that's what the "-spring" suffix in this filename enables). Duplicating
+         them here would just be a second place those levels could drift out of sync. -->
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="FILE"/>
+    </root>
+
+</configuration>

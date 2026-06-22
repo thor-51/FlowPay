@@ -1,0 +1,16 @@
+global:
+  scrape_interval: 10s
+  evaluation_interval: 10s
+
+scrape_configs:
+  - job_name: "transaction-processing-system"
+    metrics_path: "/actuator/prometheus"
+    static_configs:
+      - targets: ["app:8080"]
+        labels:
+          application: "transaction-processing-system"
+          environment: "local"
+
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]

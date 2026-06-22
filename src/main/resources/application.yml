@@ -1,0 +1,139 @@
+spring:
+  application:
+    name: transaction-processing-system
+
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:dev}
+
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/tps_db}
+    username: ${DB_USERNAME:tps_user}
+    password: ${DB_PASSWORD:tps_password}
+    hikari:
+      maximum-pool-size: ${DB_POOL_SIZE:10}
+      minimum-idle: 2
+      connection-timeout: 20000
+      pool-name: TPSHikariPool
+
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        jdbc.batch_size: 50
+        order_inserts: true
+        order_updates: true
+        format_sql: false
+    show-sql: false
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      timeout: 2000ms
+      lettuce:
+        pool:
+          max-active: 16
+          max-idle: 8
+          min-idle: 2
+
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      acks: all
+      retries: 3
+      properties:
+        enable.idempotence: true
+        max.in.flight.requests.per.connection: 5
+        linger.ms: 5
+    consumer:
+      group-id: transaction-processing-group
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+      properties:
+        spring.json.trusted.packages: "com.example.transactionprocessing.*"
+        max.poll.records: 50
+    listener:
+      ack-mode: MANUAL_IMMEDIATE
+      missing-topics-fatal: false
+
+app:
+  kafka:
+    topics:
+      transaction-created: transaction.created
+      transaction-processed: transaction.processed
+      transaction-failed: transaction.failed
+      transaction-dead-letter: transaction.dead-letter
+    partitions: 3
+    replication-factor: 1
+
+  retry:
+    max-attempts: 5
+    initial-backoff-ms: 1000
+    backoff-multiplier: 2.0
+    max-backoff-ms: 30000
+    sweep-interval-ms: 5000
+
+  idempotency:
+    ttl-hours: 24
+    key-prefix: "idempotency:"
+
+  jwt:
+    secret: ${JWT_SECRET:change-this-development-secret-key-minimum-256-bits-long-please}
+    access-token-expiration-ms: ${JWT_ACCESS_EXPIRATION:900000}      # 15 minutes
+    refresh-token-expiration-ms: ${JWT_REFRESH_EXPIRATION:604800000} # 7 days
+    issuer: transaction-processing-system
+
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      show-details: when_authorized
+      probes:
+        enabled: true
+  metrics:
+    tags:
+      application: ${spring.application.name}
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+        transaction.processing.duration: true
+
+springdoc:
+  api-docs:
+    path: /api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    operationsSorter: method
+    tagsSorter: alpha
+
+newrelic:
+  enabled: ${NEW_RELIC_ENABLED:false}
+  app-name: ${NEW_RELIC_APP_NAME:transaction-processing-system}
+  license-key: ${NEW_RELIC_LICENSE_KEY:}
+  # See docs/NEW_RELIC.md for full local/CI setup instructions.
+  # The agent jar is intentionally NOT bundled; attach via -javaagent when NEWRELIC_ENABLED=true.
+
+logging:
+  level:
+    root: INFO
+    com.example.transactionprocessing: ${APP_LOG_LEVEL:INFO}
+    org.apache.kafka: WARN
+    org.hibernate.SQL: ${SQL_LOG_LEVEL:WARN}
