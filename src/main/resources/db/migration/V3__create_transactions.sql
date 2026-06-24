@@ -5,7 +5,7 @@ CREATE TABLE transactions (
     source_account_id       UUID                     NOT NULL,
     destination_account_id  UUID                     NOT NULL,
     amount                  NUMERIC(19, 4)           NOT NULL,
-    currency                CHAR(3)                  NOT NULL,
+    currency                VARCHAR(3)                  NOT NULL,
     status                  VARCHAR(20)              NOT NULL,
     failure_reason          VARCHAR(500),
     idempotency_key         VARCHAR(128),

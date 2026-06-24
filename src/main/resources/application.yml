@@ -43,6 +43,9 @@ spring:
           max-active: 16
           max-idle: 8
           min-idle: 2
+    web:
+      pageable:
+        max-page-size: 100
 
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}

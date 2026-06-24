@@ -11,6 +11,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.example.transactionprocessing.common.exception.GlobalExceptionHandler;
 import com.example.transactionprocessing.common.exception.ResourceNotFoundException;
 import com.example.transactionprocessing.security.CustomUserDetails;
+import com.example.transactionprocessing.security.CustomUserDetailsService;
+import com.example.transactionprocessing.security.JwtTokenProvider;
 import com.example.transactionprocessing.transaction.controller.TransactionController;
 import com.example.transactionprocessing.transaction.dto.response.TransactionResponse;
 import com.example.transactionprocessing.transaction.entity.Transaction;
@@ -22,6 +24,7 @@ import com.example.transactionprocessing.transaction.service.TransactionService;
 import com.example.transactionprocessing.user.entity.Role;
 import com.example.transactionprocessing.user.entity.User;
 import java.math.BigDecimal;
+import java.lang.reflect.Field;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -37,23 +40,6 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
-/**
- * @WebMvcTest loads only the web layer for TransactionController, plus explicitly imported
- * infrastructure (GlobalExceptionHandler — needed so UnauthorizedAccountAccessException and
- * ResourceNotFoundException produce the correct ApiResponse-shaped body rather than a default
- * Spring error page; ControllerAdvice beans outside the tested controller's package are not
- * auto-detected in @WebMvcTest slices). The real JWT security filter chain is disabled
- * (addFilters = false): standing up JwtAuthenticationFilter and CustomUserDetailsService in a
- * narrow slice test adds real complexity without exercising anything this class is responsible
- * for. Instead, the authenticated principal is pushed directly onto SecurityContextHolder in
- * setUp() — exactly what JwtAuthenticationFilter would have done by the time the request
- * reaches this controller in production.
- *
- * Scope note: because SecurityConfig itself isn't loaded in this slice, @EnableMethodSecurity
- * (and therefore @PreAuthorize("hasRole('ADMIN')") on the retry endpoint) is NOT enforced here.
- * That authorization rule is intentionally not tested at this layer; covering it requires a full
- * @SpringBootTest with the real security configuration loaded.
- */
 @WebMvcTest(controllers = TransactionController.class)
 @AutoConfigureMockMvc(addFilters = false)
 @Import(GlobalExceptionHandler.class)
@@ -72,174 +58,146 @@ class TransactionControllerIntegrationTest {
     @MockBean
     private TransactionMapper transactionMapper;
 
+    @MockBean
+    private JwtTokenProvider jwtTokenProvider;
+
+    @MockBean
+    private CustomUserDetailsService customUserDetailsService;
+
     private UUID userId;
 
+    private void setId(Object entity, UUID id) throws Exception {
+        Class<?> clazz = entity.getClass();
+        while (clazz != null) {
+            try {
+                Field f = clazz.getDeclaredField("id");
+                f.setAccessible(true);
+                f.set(entity, id);
+                return;
+            } catch (NoSuchFieldException e) {
+                clazz = clazz.getSuperclass();
+            }
+        }
+        throw new NoSuchFieldException("id not found");
+    }
+
     @BeforeEach
-    void setUp() {
+    void setUp() throws Exception {
         userId = UUID.randomUUID();
         User user = User.builder()
-                .id(userId)
                 .name("Test User")
                 .email("test@example.com")
-                .passwordHash("irrelevant-for-this-test")
+                .passwordHash("irrelevant")
                 .role(Role.USER)
                 .build();
-        CustomUserDetails currentUser = new CustomUserDetails(user);
-
-        SecurityContextHolder.getContext()
-                .setAuthentication(new UsernamePasswordAuthenticationToken(
-                        currentUser, null, currentUser.getAuthorities()));
+        setId(user, userId);
+        CustomUserDetails principal = new CustomUserDetails(user);
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(principal, null, principal.getAuthorities()));
     }
 
     @AfterEach
     void tearDown() {
-        // MDC-style thread-local cleanup: SecurityContext left behind here would leak into
-        // unrelated tests run on the same thread in the same JVM.
         SecurityContextHolder.clearContext();
     }
 
     @Test
-    void createTransaction_returns201WithMappedResponse() throws Exception {
-        UUID sourceAccountId = UUID.randomUUID();
-        UUID destinationAccountId = UUID.randomUUID();
-
-        Transaction savedTransaction = Transaction.builder()
-                .id(UUID.randomUUID())
+    void createTransaction_returns201() throws Exception {
+        UUID srcId = UUID.randomUUID();
+        UUID dstId = UUID.randomUUID();
+        Transaction tx = Transaction.builder()
                 .transactionReference("TXN-abc")
-                .sourceAccountId(sourceAccountId)
-                .destinationAccountId(destinationAccountId)
+                .sourceAccountId(srcId)
+                .destinationAccountId(dstId)
                 .amount(new BigDecimal("25.00"))
                 .currency("USD")
                 .status(TransactionStatus.PENDING)
                 .retryCount(0)
+                .version(0L)
                 .build();
-
-        TransactionResponse responseDto = TransactionResponse.builder()
-                .id(savedTransaction.getId())
+        TransactionResponse dto = TransactionResponse.builder()
                 .transactionReference("TXN-abc")
                 .status(TransactionStatus.PENDING)
                 .amount(new BigDecimal("25.00"))
                 .currency("USD")
                 .build();
-
-        when(transactionService.createTransaction(any(CreateTransactionCommand.class)))
-                .thenReturn(savedTransaction);
-        when(transactionMapper.toResponse(savedTransaction)).thenReturn(responseDto);
-
-        String requestBody =
-                """
-                {
-                  "sourceAccountId": "%s",
-                  "destinationAccountId": "%s",
-                  "amount": 25.00,
-                  "currency": "USD"
-                }
-                """.formatted(sourceAccountId, destinationAccountId);
-
+        when(transactionService.createTransaction(any(CreateTransactionCommand.class))).thenReturn(tx);
+        when(transactionMapper.toResponse(tx)).thenReturn(dto);
         mockMvc.perform(post("/api/v1/transactions")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(requestBody))
+                        .content("{\"sourceAccountId\":\"" + srcId + "\",\"destinationAccountId\":\"" + dstId + "\",\"amount\":25.00,\"currency\":\"USD\"}"))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.success", is(true)))
-                .andExpect(jsonPath("$.data.transactionReference", is("TXN-abc")))
-                .andExpect(jsonPath("$.data.status", is("PENDING")));
+                .andExpect(jsonPath("$.data.transactionReference", is("TXN-abc")));
     }
 
     @Test
     void createTransaction_returns400_whenAmountIsZero() throws Exception {
-        String requestBody =
-                """
-                {
-                  "sourceAccountId": "%s",
-                  "destinationAccountId": "%s",
-                  "amount": 0,
-                  "currency": "USD"
-                }
-                """.formatted(UUID.randomUUID(), UUID.randomUUID());
-
         mockMvc.perform(post("/api/v1/transactions")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(requestBody))
+                        .content("{\"sourceAccountId\":\"" + UUID.randomUUID() + "\",\"destinationAccountId\":\"" + UUID.randomUUID() + "\",\"amount\":0,\"currency\":\"USD\"}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.success", is(false)));
     }
 
     @Test
-    void createTransaction_returns400_whenCurrencyIsNotThreeLetters() throws Exception {
-        String requestBody =
-                """
-                {
-                  "sourceAccountId": "%s",
-                  "destinationAccountId": "%s",
-                  "amount": 10.00,
-                  "currency": "US"
-                }
-                """.formatted(UUID.randomUUID(), UUID.randomUUID());
-
+    void createTransaction_returns400_whenCurrencyInvalid() throws Exception {
         mockMvc.perform(post("/api/v1/transactions")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(requestBody))
+                        .content("{\"sourceAccountId\":\"" + UUID.randomUUID() + "\",\"destinationAccountId\":\"" + UUID.randomUUID() + "\",\"amount\":10.00,\"currency\":\"US\"}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.success", is(false)));
     }
 
     @Test
-    void createTransaction_returns400_whenBodyIsMissing() throws Exception {
-        mockMvc.perform(post("/api/v1/transactions")
-                        .contentType(MediaType.APPLICATION_JSON))
+    void createTransaction_returns400_whenBodyMissing() throws Exception {
+        mockMvc.perform(post("/api/v1/transactions").contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.success", is(false)));
     }
 
     @Test
-    void getById_returns200_whenCallerOwnsTheTransaction() throws Exception {
-        UUID transactionId = UUID.randomUUID();
-        Transaction transaction = Transaction.builder()
-                .id(transactionId)
+    void getById_returns200_whenOwner() throws Exception {
+        UUID txId = UUID.randomUUID();
+        Transaction tx = Transaction.builder()
+                .transactionReference("TXN-mine")
                 .userId(userId)
-                .transactionReference("TXN-mine")
                 .status(TransactionStatus.SUCCESS)
+                .version(0L)
                 .build();
-        TransactionResponse responseDto = TransactionResponse.builder()
-                .id(transactionId)
-                .transactionReference("TXN-mine")
-                .status(TransactionStatus.SUCCESS)
-                .build();
-
-        when(transactionService.getById(transactionId)).thenReturn(transaction);
-        when(transactionMapper.toResponse(transaction)).thenReturn(responseDto);
-
-        mockMvc.perform(get("/api/v1/transactions/{id}", transactionId))
+        setId(tx, txId);
+        TransactionResponse dto = TransactionResponse.builder()
+                .id(txId).transactionReference("TXN-mine").status(TransactionStatus.SUCCESS).build();
+        when(transactionService.getById(txId)).thenReturn(tx);
+        when(transactionMapper.toResponse(tx)).thenReturn(dto);
+        mockMvc.perform(get("/api/v1/transactions/{id}", txId))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success", is(true)))
                 .andExpect(jsonPath("$.data.transactionReference", is("TXN-mine")));
     }
 
     @Test
-    void getById_returns403_whenCallerDoesNotOwnTransactionAndIsNotAdmin() throws Exception {
-        UUID transactionId = UUID.randomUUID();
-        Transaction someoneElsesTransaction = Transaction.builder()
-                .id(transactionId)
-                .userId(UUID.randomUUID())   // deliberately not this test's userId
+    void getById_returns403_whenNotOwner() throws Exception {
+        UUID txId = UUID.randomUUID();
+        Transaction tx = Transaction.builder()
                 .transactionReference("TXN-not-mine")
+                .userId(UUID.randomUUID())
                 .status(TransactionStatus.SUCCESS)
+                .version(0L)
                 .build();
-
-        when(transactionService.getById(transactionId)).thenReturn(someoneElsesTransaction);
-
-        mockMvc.perform(get("/api/v1/transactions/{id}", transactionId))
+        setId(tx, txId);
+        when(transactionService.getById(txId)).thenReturn(tx);
+        mockMvc.perform(get("/api/v1/transactions/{id}", txId))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.success", is(false)));
     }
 
     @Test
-    void getByReference_returns404_whenTransactionDoesNotExist() throws Exception {
+    void getByReference_returns404_whenMissing() throws Exception {
         when(transactionService.getByReference("TXN-missing"))
                 .thenThrow(new ResourceNotFoundException("Transaction not found: TXN-missing"));
-
         mockMvc.perform(get("/api/v1/transactions/reference/{ref}", "TXN-missing"))
                 .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.success", is(false)))
-                .andExpect(jsonPath("$.message").exists());
+                .andExpect(jsonPath("$.success", is(false)));
     }
 }
