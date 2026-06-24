@@ -1,5 +1,7 @@
 # Real-Time Transaction Processing System
 
+[![CI](https://github.com/thor-51/transaction-processing-system/actions/workflows/ci.yml/badge.svg)](https://github.com/thor-51/transaction-processing-system/actions/workflows/ci.yml)
+
 A production-style, event-driven payment transfer platform built with Java 21 and Spring Boot 3. Transfers are accepted synchronously through a REST API, published to Kafka, and processed asynchronously by a consumer that debits the source account and credits the destination — with Redis-backed idempotency, exponential-backoff retry, dead-lettering, Prometheus/Grafana observability, and structured JSON logging ready for ELK ingestion.
 
 ---
