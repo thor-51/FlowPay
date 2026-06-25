@@ -638,7 +638,19 @@ Once `retryCount >= maxAttempts`, the transaction becomes `DEAD_LETTERED` and a 
 
 ### Target throughput
 
-10,000 transactions/day = ~0.12 TPS sustained. The bottleneck at this scale is almost certainly Postgres write throughput (each transaction needs 2 account updates + 1 transaction update + 1 audit insert under a pessimistic lock), not Kafka or the app tier.
+Benchmarked locally using k6 with 100 concurrent virtual users over 3m30s:
+
+| Metric | Result |
+|---|---|
+| **Throughput** | **577 TPS** (121,227 requests in 3m30s) |
+| **p50 latency** | 4.8ms |
+| **p90 latency** | 15.4ms |
+| **p95 latency** | 29.8ms |
+| **p99 latency** | 140.6ms |
+| **Error rate** | 0.00% |
+| **Peak VUs** | 100 |
+
+At 577 TPS sustained, this equates to ~49M transactions/day on a single MacBook Air M2 running the full Docker stack (app + Kafka + Postgres + Redis) locally. The p99 threshold of 2000ms passed with 14x headroom. Load test script: `load-test/transaction_load_test.js`
 
 ### Running a local benchmark with `hey`
 
